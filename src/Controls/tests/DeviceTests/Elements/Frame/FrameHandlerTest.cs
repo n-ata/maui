@@ -1,4 +1,4 @@
-﻿#if WINDOWS
+﻿#if WINDOWS || ANDROID
 using Microsoft.Maui.Controls.Handlers.Compatibility;
 using Microsoft.Maui.DeviceTests.Stubs;
 

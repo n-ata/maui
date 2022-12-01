@@ -6,14 +6,17 @@ using Android.Content;
 using Android.Graphics;
 using Android.Graphics.Drawables;
 using Android.Views;
+using Android.Views.Inspectors;
 using AndroidX.CardView.Widget;
 using AndroidX.Core.View;
 using Microsoft.Maui.Controls.Platform;
 using Microsoft.Maui.Graphics;
+using static Android.Icu.Text.CaseMap;
 using AColor = Android.Graphics.Color;
 using ARect = Android.Graphics.Rect;
 using AView = Android.Views.View;
 using Color = Microsoft.Maui.Graphics.Color;
+using static Microsoft.Maui.Primitives.Dimension;
 
 namespace Microsoft.Maui.Controls.Handlers.Compatibility
 {
@@ -28,7 +31,30 @@ namespace Microsoft.Maui.Controls.Handlers.Compatibility
 				[Frame.CornerRadiusProperty.PropertyName] = (h, _) => h.UpdateCornerRadius(),
 				[Frame.BorderColorProperty.PropertyName] = (h, _) => h.UpdateBorderColor(),
 				[Microsoft.Maui.Controls.Compatibility.Layout.IsClippedToBoundsProperty.PropertyName] = (h, _) => h.UpdateClippedToBounds(),
-				[Frame.ContentProperty.PropertyName] = (h, _) => h.UpdateContent()
+				[Frame.ContentProperty.PropertyName] = (h, _) => h.UpdateContent(),
+
+				// TODO NET8. These are all needed because the AndroidBatchMapper doesn't run via the mapper it's a manual call on ViewHandler
+				// With NET8 we can move the BatchMapper call to the actual ViewHandler.Mapper. 
+				// Because we most likely want to backport these fixes to NET7, I've just opted to add these manually for now on Frame
+				[nameof(IView.AutomationId)] = (h, v) => ViewHandler.MapAutomationId(h, v),
+				[nameof(IView.IsEnabled)] = (h, v) => ViewRenderer.VisualElementRendererMapper.UpdateProperty(h, v, nameof(IView.IsEnabled)),
+				[nameof(IView.Visibility)] = (h, v) => ViewRenderer.VisualElementRendererMapper.UpdateProperty(h, v, nameof(IView.Visibility)),
+				[nameof(IView.MinimumHeight)] = (h, v) => ViewRenderer.VisualElementRendererMapper.UpdateProperty(h, v, nameof(IView.MinimumHeight)),
+				[nameof(IView.MinimumWidth)] = (h, v) => ViewRenderer.VisualElementRendererMapper.UpdateProperty(h, v, nameof(IView.MinimumWidth)),
+				[nameof(IView.Opacity)] = (h, v) => ViewRenderer.VisualElementRendererMapper.UpdateProperty(h, v, nameof(IView.Opacity)),
+				[nameof(IView.TranslationX)] = (h, v) => ViewRenderer.VisualElementRendererMapper.UpdateProperty(h, v, nameof(IView.TranslationX)),
+				[nameof(IView.TranslationY)] = (h, v) => ViewRenderer.VisualElementRendererMapper.UpdateProperty(h, v, nameof(IView.TranslationY)),
+				[nameof(IView.Scale)] = (h, v) => ViewRenderer.VisualElementRendererMapper.UpdateProperty(h, v, nameof(IView.Scale)),
+				[nameof(IView.ScaleX)] = (h, v) => ViewRenderer.VisualElementRendererMapper.UpdateProperty(h, v, nameof(IView.ScaleX)),
+				[nameof(IView.ScaleY)] = (h, v) => ViewRenderer.VisualElementRendererMapper.UpdateProperty(h, v, nameof(IView.ScaleY)),
+				[nameof(IView.Rotation)] = (h, v) => ViewRenderer.VisualElementRendererMapper.UpdateProperty(h, v, nameof(IView.Rotation)),
+				[nameof(IView.RotationX)] = (h, v) => ViewRenderer.VisualElementRendererMapper.UpdateProperty(h, v, nameof(IView.RotationX)),
+				[nameof(IView.RotationY)] = (h, v) => ViewRenderer.VisualElementRendererMapper.UpdateProperty(h, v, nameof(IView.RotationY)),
+				[nameof(IView.AnchorX)] = (h, v) => ViewRenderer.VisualElementRendererMapper.UpdateProperty(h, v, nameof(IView.AnchorX)),
+				[nameof(IView.AnchorY)] = (h, v) => ViewRenderer.VisualElementRendererMapper.UpdateProperty(h, v, nameof(IView.AnchorY)),
+				[nameof(IViewHandler.ContainerView)] = MapContainerView,
+				[nameof(IView.Shadow)] = MapShadow,
+				[nameof(IView.InputTransparent)] = MapInputTransparent,
 			};
 
 		public static CommandMapper<Frame, FrameRenderer> CommandMapper
@@ -81,8 +107,16 @@ namespace Microsoft.Maui.Controls.Handlers.Compatibility
 
 		Size IViewHandler.GetDesiredSize(double widthMeasureSpec, double heightMeasureSpec)
 		{
+			double minWidth = 20;
+			if (IsExplicitSet(widthMeasureSpec) && !double.IsInfinity(widthMeasureSpec))
+				minWidth = widthMeasureSpec;
+
+			double minHeight = 20;
+			if (IsExplicitSet(widthMeasureSpec) && !double.IsInfinity(heightMeasureSpec))
+				minHeight = heightMeasureSpec;
+
 			return VisualElementRenderer<Frame>.GetDesiredSize(this, widthMeasureSpec, heightMeasureSpec,
-				new Size(20, 20));
+				new Size(minWidth, minHeight));
 		}
 
 		protected override void Dispose(bool disposing)
@@ -327,9 +361,64 @@ namespace Microsoft.Maui.Controls.Handlers.Compatibility
 		}
 
 		#region IPlatformViewHandler
-		bool IViewHandler.HasContainer { get => false; set { } }
+		static void UpdateHasContainer(IViewHandler handler, bool definitelyNeedsContainer)
+		{
+			if (definitelyNeedsContainer)
+			{
+				handler.HasContainer = true;
+			}
+			else
+			{
+				if (handler is ViewHandler viewHandler)
+					handler.HasContainer = viewHandler.NeedsContainer;
+			}
+		}
 
-		object? IViewHandler.ContainerView => null;
+		bool NeedsContainer
+		{
+			get
+			{
+				var virtualView = Element as IView;
+				return virtualView?.Clip != null || virtualView?.Shadow != null
+					|| (virtualView as IBorder)?.Border != null || virtualView?.InputTransparent == true;
+			}
+		}
+
+		static void MapContainerView(IViewHandler handler, IView view)
+		{
+			if (handler is FrameRenderer frameRenderer)
+			{
+				handler.HasContainer = frameRenderer.NeedsContainer;
+			}
+		}
+
+		bool _hasContainer;
+		AView? _wrapperView;
+
+		bool IViewHandler.HasContainer
+		{
+			get => _hasContainer;
+			set
+			{
+				if (_hasContainer == value)
+					return;
+
+				_hasContainer = value;
+
+				if (value)
+					SetupContainer();
+				else
+					RemoveContainer();
+			}
+		}
+
+		void SetupContainer() =>
+			WrapperView.SetupContainer(this, Context, _wrapperView, (cv) => _wrapperView = cv);
+
+		void RemoveContainer() =>
+			WrapperView.RemoveContainer(this, Context, _wrapperView, () => _wrapperView = null);
+
+		object? IViewHandler.ContainerView => _wrapperView;
 
 		IView? IViewHandler.VirtualView => Element;
 
@@ -341,7 +430,7 @@ namespace Microsoft.Maui.Controls.Handlers.Compatibility
 
 		AView IPlatformViewHandler.PlatformView => this;
 
-		AView? IPlatformViewHandler.ContainerView => this;
+		AView? IPlatformViewHandler.ContainerView => _wrapperView;
 
 		void IViewHandler.PlatformArrange(Graphics.Rect rect) =>
 			this.PlatformArrangeHandler(rect);
@@ -372,6 +461,24 @@ namespace Microsoft.Maui.Controls.Handlers.Compatibility
 		{
 			_viewHandlerWrapper.DisconnectHandler();
 		}
+
+		// TODO NET8 this code should be more generalized inside `ViewHandler` so it can apply just via the mappers
+		// The NeedsContainer code in ViewHandler doesn't need to be on ViewHandler.
+		// It should just be moved into the UpdateHasContainer code inside ViewHandler
+		static void MapShadow(IViewHandler handler, IView view)
+		{
+			var shadow = view.Shadow;
+			UpdateHasContainer(handler, shadow != null);
+			ViewHandler.MapShadow(handler, view);
+		}
+
+		static void MapInputTransparent(IViewHandler handler, IView view)
+		{
+			var inputTransparent = view.InputTransparent;
+			UpdateHasContainer(handler, inputTransparent);
+			ViewHandler.MapInputTransparent(handler, view);
+		}
+
 		#endregion
 	}
 }
