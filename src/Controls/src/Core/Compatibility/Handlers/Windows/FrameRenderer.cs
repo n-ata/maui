@@ -20,7 +20,6 @@ namespace Microsoft.Maui.Controls.Handlers.Compatibility
 
 		public FrameRenderer() : this(Mapper, CommandMapper)
 		{
-			AutoPackage = false;
 		}      
 		
 		// TODO NET8 make public

@@ -79,13 +79,13 @@ namespace Microsoft.Maui.Controls.Handlers.Compatibility
 			var minimumSize = MinimumSize();
 			var mauiRect = Control?.DesiredSize ?? minimumSize.ToPlatform();
 
-			if (Element is not IVisualTreeElement vte || mauiContext == null)
+			if (Element is not IElementController vte || mauiContext == null)
 				return mauiRect;
 
 			var width = Math.Max(mauiRect.Width, minimumSize.Width);
 			var height = Math.Max(mauiRect.Height, minimumSize.Height);
 
-			foreach (var child in vte.GetVisualChildren())
+			foreach (var child in vte.LogicalChildren)
 			{
 				if (child is Maui.IElement childElement && childElement.Handler is IPlatformViewHandler nvh)
 				{
@@ -105,11 +105,11 @@ namespace Microsoft.Maui.Controls.Handlers.Compatibility
 			}
 
 			var mauiContext = Element?.Handler?.MauiContext;
-			if (Element is not IVisualTreeElement vte || mauiContext == null)
+			if (Element is not IElementController vte || mauiContext == null)
 				return finalSize;
 
 			var mauiRect = new Graphics.Rect(0, 0, finalSize.Width, finalSize.Height);
-			foreach (var child in vte.GetVisualChildren())
+			foreach (var child in vte.LogicalChildren)
 			{
 				if (child is Maui.IElement childElement && childElement.Handler is IPlatformViewHandler nvh)
 					nvh.PlatformArrangeHandler(mauiRect);
@@ -153,14 +153,14 @@ namespace Microsoft.Maui.Controls.Handlers.Compatibility
 
 			panel.Children.Clear();
 
-			if (element is not IVisualTreeElement vte)
+			if (element is not IElementController vte)
 				return;
 
 			var mauiContext = element?.Handler?.MauiContext;
 			if (mauiContext == null)
 				return;
 
-			foreach (var child in vte.GetVisualChildren())
+			foreach (var child in vte.LogicalChildren)
 			{
 				if (child is Maui.IElement childElement)
 					panel.Children.Add(childElement.ToPlatform(mauiContext));
